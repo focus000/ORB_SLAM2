@@ -58,6 +58,7 @@ void LocalMapping::Run()
         if(CheckNewKeyFrames())
         {
             // BoW conversion and insertion in Map
+            // 从缓冲队列里取出要处理的关键帧
             ProcessNewKeyFrame();
 
             // Check recent MapPoints
@@ -66,6 +67,7 @@ void LocalMapping::Run()
             // Triangulate new MapPoints
             CreateNewMapPoints();
 
+            // 队列没堆积就走进去做一下
             if(!CheckNewKeyFrames())
             {
                 // Find more matches in neighbor keyframes and fuse point duplications
@@ -111,6 +113,10 @@ void LocalMapping::Run()
     SetFinish();
 }
 
+// 向缓冲队列插入新的关键帧
+// Tracking线程会在两处插入
+// 1、初始化地图时
+// 2、CreateNewKeyFrame时
 void LocalMapping::InsertKeyFrame(KeyFrame *pKF)
 {
     unique_lock<mutex> lock(mMutexNewKFs);
@@ -119,6 +125,7 @@ void LocalMapping::InsertKeyFrame(KeyFrame *pKF)
 }
 
 
+// 检查缓冲队列是否有新帧
 bool LocalMapping::CheckNewKeyFrames()
 {
     unique_lock<mutex> lock(mMutexNewKFs);
@@ -236,6 +243,7 @@ void LocalMapping::CreateNewMapPoints()
     // Search matches with epipolar restriction and triangulate
     for(size_t i=0; i<vpNeighKFs.size(); i++)
     {
+        // 如果有新帧未处理(队列有堆积), 只做一次匹配建点
         if(i>0 && CheckNewKeyFrames())
             return;
 
@@ -244,15 +252,18 @@ void LocalMapping::CreateNewMapPoints()
         // Check first that baseline is not too short
         cv::Mat Ow2 = pKF2->GetCameraCenter();
         cv::Mat vBaseline = Ow2-Ow1;
+        // baseline 两帧相机距离
         const float baseline = cv::norm(vBaseline);
 
         if(!mbMonocular)
         {
+            // 双目/RGBD与自己本身的基线比较
             if(baseline<pKF2->mb)
             continue;
         }
         else
         {
+            // 单目与相邻帧的中间深度比较
             const float medianDepthKF2 = pKF2->ComputeSceneMedianDepth(2);
             const float ratioBaselineDepth = baseline/medianDepthKF2;
 
@@ -302,6 +313,7 @@ void LocalMapping::CreateNewMapPoints()
 
             cv::Mat ray1 = Rwc1*xn1;
             cv::Mat ray2 = Rwc2*xn2;
+            // 两个相机之间的视差角
             const float cosParallaxRays = ray1.dot(ray2)/(cv::norm(ray1)*cv::norm(ray2));
 
             float cosParallaxStereo = cosParallaxRays+1;
@@ -309,8 +321,10 @@ void LocalMapping::CreateNewMapPoints()
             float cosParallaxStereo2 = cosParallaxStereo;
 
             if(bStereo1)
+                // 相机1双目视差角
                 cosParallaxStereo1 = cos(2*atan2(mpCurrentKeyFrame->mb/2,mpCurrentKeyFrame->mvDepth[idx1]));
             else if(bStereo2)
+                // 相机2双目视差角
                 cosParallaxStereo2 = cos(2*atan2(pKF2->mb/2,pKF2->mvDepth[idx2]));
 
             cosParallaxStereo = min(cosParallaxStereo1,cosParallaxStereo2);
@@ -318,6 +332,7 @@ void LocalMapping::CreateNewMapPoints()
             cv::Mat x3D;
             if(cosParallaxRays<cosParallaxStereo && cosParallaxRays>0 && (bStereo1 || bStereo2 || cosParallaxRays<0.9998))
             {
+                // 两个相机之间的视差角最大, 且满足一定阈值
                 // Linear Triangulation Method
                 cv::Mat A(4,4,CV_32F);
                 A.row(0) = xn1.at<float>(0)*Tcw1.row(2)-Tcw1.row(0);
@@ -339,10 +354,12 @@ void LocalMapping::CreateNewMapPoints()
             }
             else if(bStereo1 && cosParallaxStereo1<cosParallaxStereo2)
             {
+                // 相机一视差角最大
                 x3D = mpCurrentKeyFrame->UnprojectStereo(idx1);                
             }
             else if(bStereo2 && cosParallaxStereo2<cosParallaxStereo1)
             {
+                // 相机二视差角最大
                 x3D = pKF2->UnprojectStereo(idx2);
             }
             else
@@ -351,6 +368,7 @@ void LocalMapping::CreateNewMapPoints()
             cv::Mat x3Dt = x3D.t();
 
             //Check triangulation in front of cameras
+            // 检查点是否都在相机前面
             float z1 = Rcw1.row(2).dot(x3Dt)+tcw1.at<float>(2);
             if(z1<=0)
                 continue;
@@ -360,6 +378,7 @@ void LocalMapping::CreateNewMapPoints()
                 continue;
 
             //Check reprojection error in first keyframe
+            // 检查点到相机的重投影误差
             const float &sigmaSquare1 = mpCurrentKeyFrame->mvLevelSigma2[kp1.octave];
             const float x1 = Rcw1.row(0).dot(x3Dt)+tcw1.at<float>(0);
             const float y1 = Rcw1.row(1).dot(x3Dt)+tcw1.at<float>(1);
@@ -413,6 +432,7 @@ void LocalMapping::CreateNewMapPoints()
             }
 
             //Check scale consistency
+            // 检查尺度一致性
             cv::Mat normal1 = x3D-Ow1;
             float dist1 = cv::norm(normal1);
 
@@ -431,6 +451,7 @@ void LocalMapping::CreateNewMapPoints()
                 continue;
 
             // Triangulation is succesfull
+            // ok 添加新点
             MapPoint* pMP = new MapPoint(x3D,mpCurrentKeyFrame,mpMap);
 
             pMP->AddObservation(mpCurrentKeyFrame,idx1);            
@@ -459,6 +480,7 @@ void LocalMapping::SearchInNeighbors()
         nn=20;
     const vector<KeyFrame*> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
     vector<KeyFrame*> vpTargetKFs;
+    // 取两级的关键帧用来融合
     for(vector<KeyFrame*>::const_iterator vit=vpNeighKFs.begin(), vend=vpNeighKFs.end(); vit!=vend; vit++)
     {
         KeyFrame* pKFi = *vit;
@@ -480,6 +502,7 @@ void LocalMapping::SearchInNeighbors()
 
 
     // Search matches by projection from current KF in target KFs
+    // 取当前帧的地图点融合到其他帧中
     ORBmatcher matcher;
     vector<MapPoint*> vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
     for(vector<KeyFrame*>::iterator vit=vpTargetKFs.begin(), vend=vpTargetKFs.end(); vit!=vend; vit++)
@@ -490,6 +513,7 @@ void LocalMapping::SearchInNeighbors()
     }
 
     // Search matches by projection from target KFs in current KF
+    // 取其他帧的地图点融合到当前帧中
     vector<MapPoint*> vpFuseCandidates;
     vpFuseCandidates.reserve(vpTargetKFs.size()*vpMapPointMatches.size());
 
@@ -515,6 +539,7 @@ void LocalMapping::SearchInNeighbors()
 
 
     // Update points
+    // 更新点信息
     vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
     for(size_t i=0, iend=vpMapPointMatches.size(); i<iend; i++)
     {
@@ -530,6 +555,7 @@ void LocalMapping::SearchInNeighbors()
     }
 
     // Update connections in covisibility graph
+    // 更新共视图
     mpCurrentKeyFrame->UpdateConnections();
 }
 
@@ -676,6 +702,7 @@ void LocalMapping::KeyFrameCulling()
 
                             if(scaleLeveli<=scaleLevel+1)
                             {
+                                // 当前帧的对应地图点的level不大,可以删
                                 nObs++;
                                 if(nObs>=thObs)
                                     break;

@@ -69,6 +69,10 @@ public:
     int SearchForInitialization(Frame &F1, Frame &F2, std::vector<cv::Point2f> &vbPrevMatched, std::vector<int> &vnMatches12, int windowSize=10);
 
     // Matching to triangulate new MapPoints. Check Epipolar Constraint.
+    // 通过bow加速匹配pKF1与pKF2之间的未被匹配的特征点，并校验是否符合对级约束。vMatchedPairs匹配成功的特征点在各自关键帧中的id。
+    // 1、跳过已经有对应地图点的点
+    // 2、计算描述子距离，检查特征点距离极线的距离，满足要求的记录信息
+    // 3、进行角度变化的统计和检查
     int SearchForTriangulation(KeyFrame *pKF1, KeyFrame* pKF2, cv::Mat F12,
                                std::vector<pair<size_t, size_t> > &vMatchedPairs, const bool bOnlyStereo);
 
@@ -77,6 +81,9 @@ public:
     int SearchBySim3(KeyFrame* pKF1, KeyFrame* pKF2, std::vector<MapPoint *> &vpMatches12, const float &s12, const cv::Mat &R12, const cv::Mat &t12, const float th);
 
     // Project MapPoints into KeyFrame and search for duplicated MapPoints.
+    // 地图点投影到帧上面实现融合
+    // 1、投影到的特征点存在对应地图点, 保留观测多的点
+    // 2、投影到的特征点不存在地图点, 直接添加地图点
     int Fuse(KeyFrame* pKF, const vector<MapPoint *> &vpMapPoints, const float th=3.0);
 
     // Project MapPoints into KeyFrame using a given Sim3 and search for duplicated MapPoints.

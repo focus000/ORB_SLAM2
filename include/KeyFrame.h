@@ -106,6 +106,7 @@ public:
     bool isBad();
 
     // Compute Scene Depth (q=2 median). Used in monocular.
+    // 该帧包含的地图点的深度, q=2时取深度排序在中间的
     float ComputeSceneMedianDepth(const int q);
 
     static bool weightComp( int a, int b){
@@ -162,7 +163,9 @@ public:
     // KeyPoints, stereo coordinate and descriptors (all associated by an index)
     const std::vector<cv::KeyPoint> mvKeys;
     const std::vector<cv::KeyPoint> mvKeysUn;
+    // 右目图片中对应特征点的横坐标, 单目为-1
     const std::vector<float> mvuRight; // negative value for monocular points
+    // 特征点深度 单目为-1
     const std::vector<float> mvDepth; // negative value for monocular points
     const cv::Mat mDescriptors;
 

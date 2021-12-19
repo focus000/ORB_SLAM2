@@ -76,6 +76,7 @@ protected:
 
     bool CheckNewKeyFrames();
     void ProcessNewKeyFrame();
+    // 通过共视图里相邻的关键帧找新的地图点
     void CreateNewMapPoints();
 
     void MapPointCulling();
